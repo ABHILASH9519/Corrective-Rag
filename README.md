@@ -1,126 +1,117 @@
-# Corrective RAG Help Desk
+# Corrective RAG
 
-A help desk that **checks its own retrieval** before answering. Built on the Corrective RAG (CRAG) idea (Yan et al., 2024): grade what the retriever returned, then decide where the answer should come from.
+**A retrieval-augmented generation service that evaluates its own evidence before answering.**
 
-Plain RAG trusts the top-k passages even when they only *look* related. Ask an Indian Railways bot about IndiGo baggage and it happily serves train-luggage notes. CRAG catches that and goes to the web instead.
+Corrective RAG adds a retrieval-quality decision step to conventional RAG. Rather than trusting nearest vector matches, the pipeline grades each passage and chooses whether to refine local evidence, search the web, or combine both sources.
 
+## System workflow
+```mermaid
+flowchart TD
+ Q[Question] --> R[Chroma retrieval]
+ R --> E[LLM passage evaluator]
+ E --> D{Deterministic verdict}
+ D -->|CORRECT| F[Sentence refinement]
+ D -->|INCORRECT| W[Query rewrite and web search]
+ D -->|AMBIGUOUS| B[Refinement and web search in parallel]
+ F --> G[Evidence-grounded generation]
+ W --> G
+ B --> G
+ G --> A[Cited answer and trace metadata]
 ```
-Question -> Retrieve (Chroma, top 3) -> Evaluator (Groq, per-passage grade)
-              CORRECT   -> Refine (keep useful sentences) ----\
-              AMBIGUOUS -> Refine + Web search (in parallel) --> Generate (cited) -> Answer
-              INCORRECT -> Web search (query rewrite first) --/
-```
 
-| Verdict | Meaning | Action |
+| Verdict | Interpretation | Action |
 |---|---|---|
-| CORRECT | at least one passage answers the question | keep only the sentences that matter |
-| INCORRECT | nothing retrieved helps | rewrite the query, search the web |
-| AMBIGUOUS | some passages help partly | do both and merge |
+| CORRECT | At least one passage fully answers | Refine and answer from local evidence |
+| INCORRECT | No retrieved passage helps | Rewrite and search the web |
+| AMBIGUOUS | Evidence is partial | Refine and search concurrently |
 
-Every fact in the answer carries a source tag, `[KB:<id>]` or `[WEB:<url>]`, so it can be audited. If neither source has the answer, the bot says it doesn't know instead of bluffing.
+Every factual sentence should retain exact [KB:<id>] or [WEB:<url>] source tags. If no usable evidence survives, the service returns an explicit no-answer response.
 
-## Features
+## Engineering capabilities
+- Passage-level relevance grading with strict structured output.
+- Sentence-level evidence refinement and preserved source identifiers.
+- Adaptive web fallback with bounded rate-limit retries.
+- LangGraph state orchestration and parallel ambiguous branch.
+- Chroma cosine retrieval over a validated JSON knowledge source.
+- FastAPI inference API, request IDs, request timing logs and health probes.
+- Optional bearer-token protection and explicit CORS allow-list.
+- Docker image, hardened local Compose setup and GitHub Actions CI.
+- Unit and API tests with provider calls stubbed.
 
-- Batched LLM evaluator with strict JSON-schema output (one call grades all passages)
-- Sentence-level knowledge refinement with citations that survive the cut
-- DuckDuckGo fallback with domain-aware query rewriting, rate-limit retries and graceful failure
-- LangGraph pipeline with parallel branches for ambiguous cases
-- Bring your own knowledge base: a plain JSON file, optional persistent Chroma index
-- CLI and FastAPI service (`/ask`, `/health`), Dockerfile, CI, tests
-- Grading and routing are separate: `decide()` is a plain, unit-tested rule
+## Architecture and operations
+- [Architecture and trust boundaries](docs/architecture.md)
+- [Operations and deployment](docs/operations.md)
 
 ## Quick start
-
-Requires Python 3.12+, [uv](https://docs.astral.sh/uv/) and a free [Groq API key](https://console.groq.com/keys).
-
+Requires Python 3.12+, uv and a [Groq API key](https://console.groq.com/keys).
 ```bash
-git clone https://github.com/ABHILASH9519/corrective-rag
-cd corrective-rag
-cp .env.example .env        # then put your GROQ_API_KEY in it
+git clone https://github.com/ABHILASH9519/Corrective-Rag.git
+cd Corrective-Rag
+cp .env.example .env
+# Add GROQ_API_KEY to .env
 uv sync --extra dev
-
-uv run crag ask -v "What time does Tatkal booking open for AC classes?"
-uv run crag ask -v "How much check-in baggage can I carry on an IndiGo domestic flight?"
-uv run crag serve           # http://localhost:8000/docs
+uv run pytest -q
+uv run crag ask -v "Ask a question supported by your knowledge base"
+uv run crag serve
 ```
+API docs: http://localhost:8000/docs
 
-`-v` prints each passage's similarity and grade plus the verdict.
-
-### API
-
+## API
+POST /ask
 ```bash
-curl -s localhost:8000/ask -H 'content-type: application/json' \
-  -d '{"question": "My train ran 5 hours late and I did not travel. How do I get a refund?"}'
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What does the knowledge base say about the selected policy?"}'
 ```
+When CRAG_API_TOKEN is configured, include Authorization: Bearer $CRAG_API_TOKEN.
+The response includes answer, CRAG verdict, cited sources, passage similarities and evaluator labels, plus the rewritten web query when used.
 
-Returns `answer`, `verdict`, `sources`, per-passage `passages` (similarity + label) and the `web_query` used, if any.
+Operational endpoints: GET /health/live, GET /health/ready and backwards-compatible GET /health.
 
-### Docker
-
-```bash
-docker build -t corrective-rag .
-docker run --rm -p 8000:8000 --env-file .env corrective-rag
-```
-
-## Use your own knowledge base
-
-Edit `data/knowledge_base.json` (or point `CRAG_KB_PATH` at another file):
-
+## Knowledge source
+Edit data/knowledge_base.json or set CRAG_KB_PATH to a JSON array:
 ```json
-[{"id": "refund-policy", "text": "Refunds are issued within 7 days..."}]
+[{"id":"policy-17","text":"The policy statement that can be retrieved and cited."}]
 ```
+IDs are part of the citation contract. Keep them stable and unique. Set CRAG_CHROMA_DIR to persist the vector index.
 
-IDs become citation tags, so keep them short and meaningful. Set `CRAG_CHROMA_DIR` to persist the index; it is re-synced with the file on every start. Update the domain wording in `src/crag/web.py` (`REWRITE_SYSTEM`) and `src/crag/graph.py` (`ANSWER_SYSTEM`) for your own domain.
-
-The bundled notes are simplified Indian Railways examples, **not an official IRCTC source**.
+Bundled knowledge records are illustrative, not authoritative policy or operational guidance. Replace them with reviewed, licensed and versioned source material before real decision use.
 
 ## Configuration
+| Variable | Purpose |
+|---|---|
+| GROQ_API_KEY | Required provider credential |
+| CRAG_API_TOKEN | Optional bearer token for inference |
+| CRAG_ALLOWED_ORIGINS | Comma-separated trusted browser origins |
+| CRAG_MODEL | LLM model identifier |
+| CRAG_TOP_K | Number of passages evaluated |
+| CRAG_WEB_RESULTS | Maximum web snippets fetched |
+| CRAG_KB_PATH | Knowledge-base JSON path |
+| CRAG_CHROMA_DIR | Persistent Chroma index directory |
+| CRAG_LOG_LEVEL | Application log level |
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `GROQ_API_KEY` | required | Groq API key |
-| `CRAG_MODEL` | `openai/gpt-oss-120b` | grading / answering model |
-| `CRAG_TOP_K` | `3` | passages sent to the evaluator |
-| `CRAG_WEB_RESULTS` | `4` | web snippets per fallback |
-| `CRAG_KB_PATH` | `data/knowledge_base.json` | knowledge base file |
-| `CRAG_CHROMA_DIR` | empty (in-memory) | persistent index directory |
-| `CRAG_LOG_LEVEL` | `INFO` | logging level |
-
-## Project layout
-
-```
-src/crag/
-  config.py     settings and API-key check
-  kb.py         JSON KB -> Chroma (cosine) -> retrieve()
-  llm.py        ask_json (strict schema) / ask_text
-  evaluator.py  grade passages, decide CORRECT / AMBIGUOUS / INCORRECT
-  refine.py     split into sentence strips, keep useful ones
-  web.py        query rewrite + DuckDuckGo search
-  graph.py      LangGraph wiring and ask()
-  cli.py        `crag ask`, `crag serve`
-  api.py        FastAPI app
-tests/          unit tests (LLM and network stubbed)
-```
-
-## Tests
-
+## Quality checks
 ```bash
+uv run ruff check .
 uv run pytest -q
 ```
+Tests stub model and web calls and do not require provider credentials.
 
-Tests stub all model and network calls, so they run offline without a key.
+## Current limitations and roadmap
+This is a single-process API with a file-backed knowledge source and in-process Chroma index. It does not yet claim multi-tenant isolation, durable query history, distributed rate limiting, a managed vector database, a web console or production SLOs.
 
-## Troubleshooting
+1. Retrieval evaluation datasets and measurable baselines (Recall@k, MRR, nDCG, faithfulness).
+2. Versioned ingestion, chunking and re-indexing with source provenance.
+3. Persistent traces, cost/latency telemetry and operational dashboards.
+4. Async execution, quotas and tenant-aware authorization.
+5. Frontend workbench for retrieval, grades, evidence and citations.
+6. Deployment automation, infrastructure-as-code and load/security testing.
 
-- **Empty or truncated grading reply**: `gpt-oss-120b` reasons before writing JSON; raise `grade_max_tokens` in `config.py`.
-- **429 from Groq**: the free tier is 8,000 tokens/minute; the client already retries 5 times.
-- **Web search returns nothing**: DuckDuckGo throttles bursts; the bot then says it doesn't know instead of failing.
-- **First run is slow**: Chroma downloads its ~80 MB ONNX embedding model once.
+## Technology
+Python 3.12 · LangGraph · Chroma · Groq · FastAPI · Pydantic · Docker · GitHub Actions · pytest · Ruff
 
-## Credits
-
-Based on *Corrective Retrieval Augmented Generation* (Yan et al., 2024). Stack: LangGraph, Chroma, Groq, DuckDuckGo (`ddgs`), FastAPI.
+## Research foundation
+Based on Corrective Retrieval Augmented Generation (Yan et al., 2024). The accompanying implementation guide's retrieve-grade-refine-search-generate workflow is the foundation; production controls and limitations are documented separately.
 
 ## License
-
 MIT

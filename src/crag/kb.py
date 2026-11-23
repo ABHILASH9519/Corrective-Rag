@@ -1,103 +1,59 @@
-"""Knowledge base: JSON notes embedded into a Chroma collection (cosine distance).
-
-Inputs:  data/knowledge_base.json - a list of {"id": str, "text": str}
-Outputs: the top-k closest passages as Doc objects, with cosine similarity
-
-Point CRAG_KB_PATH at your own file to run the help desk on your own content.
-Set CRAG_CHROMA_DIR to persist the index between runs.
-"""
-
+"""Validated JSON knowledge source and Chroma cosine retrieval."""
 from __future__ import annotations
-
-import json
-import logging
-import threading
+import json, logging, threading
 from dataclasses import dataclass
 from pathlib import Path
-
+from typing import Any
 from crag.config import SETTINGS
-
-log = logging.getLogger(__name__)
-
-
+log=logging.getLogger(__name__)
 @dataclass
 class Doc:
-    """One retrieved passage and how close it was to the question."""
-
     id: str
     text: str
     similarity: float
-
-
-def load_passages(path: Path) -> dict[str, str]:
-    """Read and validate the knowledge base file."""
-    try:
-        raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise SystemExit(f"Knowledge base not found: {path}") from None
-    except json.JSONDecodeError as error:
-        raise SystemExit(f"Knowledge base {path} is not valid JSON: {error}") from None
-
-    passages: dict[str, str] = {}
-    for position, item in enumerate(raw):
-        if not isinstance(item, dict) or not item.get("id") or not item.get("text"):
-            raise SystemExit(f"Knowledge base entry #{position} needs non-empty 'id' and 'text'")
-        if item["id"] in passages:
-            raise SystemExit(f"Duplicate knowledge base id: {item['id']}")
-        passages[str(item["id"])] = str(item["text"]).strip()
-    if not passages:
-        raise SystemExit(f"Knowledge base {path} is empty")
+def load_passages(path: Path) -> dict[str,str]:
+    try: raw: Any=json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError: raise SystemExit(f"Knowledge base not found: {path}") from None
+    except json.JSONDecodeError as error: raise SystemExit(f"Knowledge base {path} is not valid JSON: {error}") from None
+    if not isinstance(raw,list): raise SystemExit(f"Knowledge base {path} must contain a JSON array")
+    passages={}
+    for position,item in enumerate(raw):
+        if not isinstance(item,dict): raise SystemExit(f"Knowledge base entry #{position} must be an object")
+        identifier,content=item.get("id"),item.get("text")
+        if not isinstance(identifier,str) or not identifier.strip():
+            raise SystemExit(f"Knowledge base entry #{position} needs a non-empty string 'id'")
+        if not isinstance(content,str) or not content.strip():
+            raise SystemExit(f"Knowledge base entry #{position} needs a non-empty string 'text'")
+        identifier=identifier.strip()
+        if identifier in passages: raise SystemExit(f"Duplicate knowledge base id: {identifier}")
+        passages[identifier]=content.strip()
+    if not passages: raise SystemExit(f"Knowledge base {path} is empty")
     return passages
-
-
-def build_collection(passages: dict[str, str]):
-    """Embed passages into a Chroma collection that uses cosine distance."""
+def build_collection(passages: dict[str,str]):
     import chromadb
-
-    client = (
-        chromadb.PersistentClient(path=SETTINGS.chroma_dir)
-        if SETTINGS.chroma_dir
-        else chromadb.EphemeralClient()
-    )
-    collection = client.get_or_create_collection(
-        "knowledge", configuration={"hnsw": {"space": "cosine"}}
-    )
-    # upsert keeps a persistent index in sync with the file on every start.
-    collection.upsert(ids=list(passages), documents=list(passages.values()))
-    stale = set(collection.get()["ids"]) - set(passages)
-    if stale:
-        collection.delete(ids=sorted(stale))
-    log.info("knowledge base ready: %d passages", len(passages))
+    client=(chromadb.PersistentClient(path=SETTINGS.chroma_dir) if SETTINGS.chroma_dir else chromadb.EphemeralClient())
+    collection=client.get_or_create_collection("knowledge",configuration={"hnsw":{"space":"cosine"}})
+    collection.upsert(ids=list(passages),documents=list(passages.values()))
+    stale=set(collection.get()["ids"])-set(passages)
+    if stale: collection.delete(ids=sorted(stale))
+    log.info("knowledge_base_ready",extra={"passage_count":len(passages)})
     return collection
-
-
-_collection = None
-_lock = threading.Lock()
-
-
+_collection=None
+_lock=threading.Lock()
 def _get_collection():
     global _collection
     with _lock:
-        if _collection is None:
-            _collection = build_collection(load_passages(SETTINGS.kb_path))
+        if _collection is None: _collection=build_collection(load_passages(SETTINGS.kb_path))
         return _collection
-
-
-def retrieve(question: str, k: int | None = None) -> list[Doc]:
-    """Return the k passages closest to the question, best first."""
-    k = k or SETTINGS.top_k
-    collection = _get_collection()
-    result = collection.query(query_texts=[question], n_results=min(k, collection.count()))
-    ids, texts, distances = result["ids"][0], result["documents"][0], result["distances"][0]
-    # Chroma returns a cosine DISTANCE; similarity is 1 minus it.
-    return [Doc(i, t, round(1 - d, 2)) for i, t, d in zip(ids, texts, distances)]
-
-
-if __name__ == "__main__":
-    for q in [
-        "What time does Tatkal booking open for AC classes?",
-        "How much check-in baggage can I carry on an IndiGo domestic flight?",
-    ]:
-        print(f"\nQ: {q}")
-        for doc in retrieve(q):
-            print(f"  {doc.similarity:.2f}  {doc.id}")
+def retrieve(question: str,k: int | None=None) -> list[Doc]:
+    if not question.strip(): return []
+    k=k or SETTINGS.top_k
+    if k<1: raise ValueError("k must be at least 1")
+    collection=_get_collection()
+    count=collection.count()
+    if not count: return []
+    result=collection.query(query_texts=[question],n_results=min(k,count))
+    return [Doc(i,t,round(max(0.0,min(1.0,1.0-d)),4))
+            for i,t,d in zip(result["ids"][0],result["documents"][0],result["distances"][0])]
+if __name__=="__main__":
+    for doc in retrieve("What is in the knowledge base?"): print(f"{doc.similarity:.4f} {doc.id}")
