@@ -1,12 +1,12 @@
 [project]
 name = "corrective-rag"
 version = "1.0.0"
-description = "Production-ready Corrective RAG (CRAG) help desk: grades its own retrieval, refines knowledge, falls back to the web, and cites every source."
+description = "Corrective RAG service with retrieval grading, evidence refinement, web fallback and measurable retrieval evaluation."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Abhilash Sharma" }]
-keywords = ["rag", "corrective-rag", "langgraph", "chromadb", "groq", "llm"]
+keywords = ["rag", "corrective-rag", "retrieval-evaluation", "langgraph", "chromadb", "groq", "llm"]
 dependencies = [
     "langgraph==1.2.12",
     "groq==1.7.0",
