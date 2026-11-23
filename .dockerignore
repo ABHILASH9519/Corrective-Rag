@@ -1,7 +1,4 @@
+.git
 .env
-.venv/
-.git/
-__pycache__/
-.pytest_cache/
-chroma_data/
-tests/
+*.log
+coverage.out

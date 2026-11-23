@@ -1,9 +1,5 @@
 .env
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-.ruff_cache/
-chroma_data/
+*.log
+coverage.out
+crag
 dist/
-*.egg-info/
