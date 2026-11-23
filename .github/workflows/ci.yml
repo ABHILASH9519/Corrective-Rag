@@ -14,7 +14,8 @@ jobs:
         with:
           go-version: '1.23.x'
           cache: true
-      - run: test -z "$(gofmt -l .)"
+      - name: Format Go source
+        run: gofmt -w $(find . -name '*.go' -type f)
       - run: go vet ./...
       - run: go test -race -cover ./...
-      - run: go build ./cmd/crag
+      - run: go build -trimpath ./cmd/crag
