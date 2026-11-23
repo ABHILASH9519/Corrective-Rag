@@ -1,19 +1,17 @@
 """Graph routing tests with every external call stubbed out."""
-
 import asyncio
 
 import pytest
 
 pytest.importorskip("langgraph")
 
-from crag import evaluator, graph, kb, llm, refine, web  # noqa: E402
-from crag.kb import Doc  # noqa: E402
+from crag import evaluator, graph, kb, llm, refine, web
+from crag.kb import Doc
 
 
 @pytest.fixture(autouse=True)
 def stubs(monkeypatch):
     calls = {"refine": 0, "web": 0}
-
     monkeypatch.setattr(kb, "retrieve", lambda q, k=None: [Doc("tdr", "A TDR is filed.", 0.5)])
 
     async def fake_refine(q, docs):
