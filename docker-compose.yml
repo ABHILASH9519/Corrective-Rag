@@ -8,6 +8,7 @@ services:
     env_file:
       - .env
     environment:
+      HOME: /tmp
       CRAG_KB_PATH: /app/data/knowledge_base.json
       CRAG_CHROMA_DIR: /var/lib/corrective-rag/chroma
     ports:

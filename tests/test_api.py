@@ -20,8 +20,8 @@ def test_ask_rejects_whitespace_question(client):
 def test_ask_returns_pipeline_result(client,monkeypatch):
     async def fake_ask(question):
         return {"answer":"Evidence says yes. [KB:policy]","verdict":"CORRECT",
-          "labels":{"policy":"relevant"},
-          "docs":[type("Doc",(),{"id":"policy","similarity":0.91})()]}
+            "labels":{"policy":"relevant"},
+            "docs":[type("Doc",(),{"id":"policy","similarity":0.91})()]}
     monkeypatch.setattr(api,"ask",fake_ask)
     response=client.post("/ask",json={"question":"Can I proceed?"})
     assert response.status_code==200
@@ -31,8 +31,11 @@ def test_ask_returns_pipeline_result(client,monkeypatch):
 
 def test_configured_bearer_token_is_required(monkeypatch):
     monkeypatch.setenv("CRAG_API_TOKEN","test-secret")
+    async def fake_ask(question):
+        return {"answer":"Evidence. [KB:policy]","verdict":"CORRECT","labels":{},"docs":[]}
+    monkeypatch.setattr(api,"ask",fake_ask)
     client=TestClient(api.app)
     assert client.post("/ask",json={"question":"Can I proceed?"}).status_code==401
     response=client.post("/ask",json={"question":"Can I proceed?"},
-      headers={"Authorization":"Bearer test-secret"})
-    assert response.status_code!=401
+        headers={"Authorization":"Bearer test-secret"})
+    assert response.status_code==200
