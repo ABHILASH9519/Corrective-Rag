@@ -1,32 +1,14 @@
 services:
   corrective-rag:
-    build:
-      context: .
+    build: .
     image: corrective-rag:local
-    init: true
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: .env
     environment:
-      HOME: /tmp
+      CRAG_ADDR: ":8080"
       CRAG_KB_PATH: /app/data/knowledge_base.json
-      CRAG_CHROMA_DIR: /var/lib/corrective-rag/chroma
     ports:
-      - "127.0.0.1:8000:8000"
-    volumes:
-      - crag-index:/var/lib/corrective-rag
+      - "127.0.0.1:8080:8080"
     read_only: true
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-volumes:
-  crag-index:
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]

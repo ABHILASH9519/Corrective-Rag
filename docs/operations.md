@@ -1,30 +1,7 @@
 # Operations
 
-## Local development
-```bash
-cp .env.example .env
-# Set GROQ_API_KEY in .env
-uv sync --extra dev
-uv run pytest -q
-uv run ruff check .
-uv run crag serve --host 127.0.0.1 --port 8000
-```
+Set GROQ_API_KEY before starting inference. Run go test ./..., go vet ./..., and go run ./cmd/crag evaluate. Start the API with go run ./cmd/crag serve. Configure CRAG_ADDR, CRAG_API_TOKEN, CRAG_ALLOWED_ORIGINS, CRAG_KB_PATH, CRAG_TOP_K and CRAG_MODEL through the environment.
 
-## Docker Compose
-```bash
-cp .env.example .env
-# Set GROQ_API_KEY and a strong CRAG_API_TOKEN
-docker compose up --build -d
-docker compose ps
-docker compose logs -f corrective-rag
-```
+GET /health/live is process liveness. GET /health/ready checks provider-key configuration. POST /ask accepts JSON {"question":"..."}. Configure bearer auth before exposing the service. Use TLS ingress, network restrictions, request quotas, provider spend limits and external secret management in deployment.
 
-Compose binds to loopback. Put the service behind TLS-enabled ingress before exposing it. Chroma persists in a named volume; the JSON knowledge file remains the source of truth.
-
-## Probes and access
-- Use /health/live for liveness and /health/ready for readiness.
-- Set CRAG_API_TOKEN to require Authorization: Bearer <token> on POST /ask.
-- Set CRAG_ALLOWED_ORIGINS only to explicit trusted browser origins.
-- Do not log API keys, bearer tokens, authorization headers or sensitive prompts.
-
-The service calls external LLM and web providers. Apply upstream timeouts, retry budgets, request quotas and cost monitoring at the deployment boundary. Web fallback may fail independently; the pipeline should then return an evidence-limited or explicit no-answer response.
+The process loads the knowledge base at startup. Restart after changing corpus files. Web fallback is best-effort. Keep a reviewed corpus and evaluation set for any real decision workflow.

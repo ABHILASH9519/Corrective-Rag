@@ -1,25 +1,7 @@
-# Architecture
+# Go service architecture
 
-## Request lifecycle
-1. **Retrieve:** Chroma embeds the question and returns top-k passages using cosine distance.
-2. **Evaluate:** one structured LLM call grades each passage as relevant, partial or irrelevant.
-3. **Route:** deterministic logic selects an action: CORRECT refines local evidence; INCORRECT rewrites and searches; AMBIGUOUS does both concurrently.
-4. **Refine:** sentence-level filtering keeps only useful evidence and preserves its knowledge-base citation.
-5. **Generate:** answer only from surviving evidence and preserve exact [KB:<id>] and [WEB:<url>] source tags.
-6. **Return:** answer, verdict, passage grades and cited sources are exposed through the API.
+The application is a native Go process. The request path is bounded HTTP input → BM25 lexical retrieval → structured LLM relevance grading → deterministic CRAG verdict → evidence refinement and/or web fallback → cited answer. The knowledge corpus is JSON and is loaded once at startup.
 
-## Trust boundaries
-- The knowledge base is application-owned input and is validated before indexing.
-- Retrieved passages and web snippets are untrusted evidence, not instructions.
-- Provider credentials are injected through environment variables; deployments should use a secret manager.
-- CRAG_API_TOKEN enables bearer authentication. Production also requires TLS, ingress request limits and network policies.
-- Web results may be stale or inaccurate. Citations enable traceability, not an assertion of authority.
+The Go standard library provides HTTP serving, JSON encoding, context cancellation, process signals and concurrency primitives. Groq's OpenAI-compatible API is called over HTTPS. DuckDuckGo Instant Answer is used as a best-effort web fallback; it is not a general-purpose search index and may return no results.
 
-## Interfaces
-- POST /ask — synchronous question answering.
-- GET /health/live — process liveness.
-- GET /health/ready — provider-key and knowledge-file readiness.
-- GET /health — backwards-compatible liveness.
-
-## Current constraints
-This is a single-process service with a file-backed knowledge source and an in-process Chroma index. Multi-tenant isolation, durable request history, distributed rate limiting, evaluation datasets and persistent telemetry remain follow-on engineering work; they are not claimed as current capabilities.
+Trust boundaries: corpus and web content are untrusted evidence; prompts explicitly prohibit treating their contents as instructions. Secrets are environment-injected. Deploy behind TLS, quotas and a secret manager. BM25 is lexical retrieval, not dense semantic search.
