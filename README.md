@@ -33,6 +33,7 @@ Every factual sentence should retain exact [KB:<id>] or [WEB:<url>] source tags.
 - Adaptive web fallback with bounded rate-limit retries.
 - LangGraph state orchestration and parallel ambiguous branch.
 - Chroma cosine retrieval over a validated JSON knowledge source.
+- Retrieval evaluation with Recall@k, MRR and nDCG against a versioned golden set.
 - FastAPI inference API, request IDs, request timing logs and health probes.
 - Optional bearer-token protection and explicit CORS allow-list.
 - Docker image, hardened local Compose setup and GitHub Actions CI.
@@ -51,6 +52,7 @@ cp .env.example .env
 # Add GROQ_API_KEY to .env
 uv sync --extra dev
 uv run pytest -q
+uv run crag evaluate --k 5
 uv run crag ask -v "Ask a question supported by your knowledge base"
 uv run crag serve
 ```
@@ -67,6 +69,13 @@ When CRAG_API_TOKEN is configured, include Authorization: Bearer $CRAG_API_TOKEN
 The response includes answer, CRAG verdict, cited sources, passage similarities and evaluator labels, plus the rewritten web query when used.
 
 Operational endpoints: GET /health/live, GET /health/ready and backwards-compatible GET /health.
+
+## Retrieval evaluation
+A small regression dataset lives in `data/evaluation_set.json`. Run:
+```bash
+uv run crag evaluate --dataset data/evaluation_set.json --k 5
+```
+The command measures Recall@k, Mean Reciprocal Rank (MRR) and normalized Discounted Cumulative Gain (nDCG@k). It does not invoke the LLM or web provider. The bundled questions are regression fixtures for the bundled illustrative corpus, not a statistically representative benchmark. Expand and review the dataset before making quality claims.
 
 ## Knowledge source
 Edit data/knowledge_base.json or set CRAG_KB_PATH to a JSON array:
@@ -100,8 +109,8 @@ Tests stub model and web calls and do not require provider credentials.
 ## Current limitations and roadmap
 This is a single-process API with a file-backed knowledge source and in-process Chroma index. It does not yet claim multi-tenant isolation, durable query history, distributed rate limiting, a managed vector database, a web console or production SLOs.
 
-1. Retrieval evaluation datasets and measurable baselines (Recall@k, MRR, nDCG, faithfulness).
-2. Versioned ingestion, chunking and re-indexing with source provenance.
+1. Versioned ingestion, chunking and re-indexing with source provenance.
+2. Broader evaluation datasets and answer faithfulness/groundedness evaluation.
 3. Persistent traces, cost/latency telemetry and operational dashboards.
 4. Async execution, quotas and tenant-aware authorization.
 5. Frontend workbench for retrieval, grades, evidence and citations.

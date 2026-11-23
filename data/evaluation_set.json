@@ -1,0 +1,15 @@
+{
+  "description": "Small regression set for the bundled illustrative knowledge base. Replace or expand with reviewed domain-specific questions before drawing quality conclusions.",
+  "queries": [
+    {"id": "tatkal-ac", "question": "When does Tatkal booking open for AC train classes?", "relevant_ids": ["tatkal-timing"]},
+    {"id": "tatkal-aadhaar", "question": "Is Aadhaar authentication required to book Tatkal online?", "relevant_ids": ["tatkal-aadhaar"]},
+    {"id": "tatkal-refund", "question": "Can I get a refund after cancelling a confirmed Tatkal ticket?", "relevant_ids": ["tatkal-refund"]},
+    {"id": "advance-window", "question": "How far in advance can a general train reservation be made?", "relevant_ids": ["advance-booking"]},
+    {"id": "late-cancel", "question": "What refund deduction applies when cancelling 24 hours before departure?", "relevant_ids": ["cancel-late"]},
+    {"id": "waitlist", "question": "What happens to an e-ticket that remains fully waitlisted after chart preparation?", "relevant_ids": ["waitlist-auto"]},
+    {"id": "rac", "question": "Can a passenger with an RAC ticket board the train?", "relevant_ids": ["rac"]},
+    {"id": "tdr", "question": "How do I request a refund if the train is more than three hours late and I do not travel?", "relevant_ids": ["tdr"]},
+    {"id": "free-luggage", "question": "What is the free luggage allowance in AC 2-tier?", "relevant_ids": ["luggage-free"]},
+    {"id": "extra-luggage", "question": "How should luggage above the free allowance be booked?", "relevant_ids": ["luggage-extra"]}
+  ]
+}
