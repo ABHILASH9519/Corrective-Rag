@@ -1,5 +1,6 @@
 """Command line interface for inference, retrieval evaluation and the API."""
 from __future__ import annotations
+
 import argparse
 import asyncio
 import json
@@ -10,6 +11,7 @@ from pathlib import Path
 def _ask(args: argparse.Namespace) -> int:
     from crag.config import require_api_key
     from crag.graph import ask, sources_of
+
     require_api_key()
     question = " ".join(args.question).strip()
     if not question:
@@ -34,9 +36,10 @@ def _ask(args: argparse.Namespace) -> int:
 
 def _evaluate(args: argparse.Namespace) -> int:
     from crag.evaluation import evaluate_dataset
+
     try:
         result = evaluate_dataset(Path(args.dataset), k=args.k)
-    except (ValueError, OSError) as error:
+    except (TypeError, ValueError, OSError) as error:
         print(f"Evaluation failed: {error}", file=sys.stderr)
         return 2
     print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -45,6 +48,7 @@ def _evaluate(args: argparse.Namespace) -> int:
 
 def _serve(args: argparse.Namespace) -> int:
     import uvicorn
+
     uvicorn.run("crag.api:app", host=args.host, port=args.port)
     return 0
 

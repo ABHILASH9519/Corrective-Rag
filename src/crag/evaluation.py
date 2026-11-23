@@ -1,12 +1,11 @@
-"""Offline retrieval evaluation metrics and golden-set runner.
-
-The evaluation path measures retrieval only; it does not call an LLM or web provider.
-"""
+"""Offline retrieval evaluation metrics and golden-set runner."""
 from __future__ import annotations
+
 import json
 import math
 from pathlib import Path
 from typing import Any
+
 from crag.kb import retrieve
 
 
@@ -49,24 +48,28 @@ def evaluate_dataset(dataset_path: Path, k: int = 5) -> dict[str, Any]:
     metric_totals: dict[str, float] = {}
     for index, item in enumerate(queries):
         if not isinstance(item, dict):
-            raise ValueError(f"Evaluation query #{index} must be an object")
+            raise TypeError(f"Evaluation query #{index} must be an object")
         question = item.get("question")
         relevant = item.get("relevant_ids")
         if not isinstance(question, str) or not question.strip():
             raise ValueError(f"Evaluation query #{index} needs a non-empty question")
-        if not isinstance(relevant, list) or not relevant or not all(isinstance(v, str) and v for v in relevant):
+        if not isinstance(relevant, list) or not relevant or not all(
+            isinstance(value, str) and value for value in relevant
+        ):
             raise ValueError(f"Evaluation query #{index} needs non-empty relevant_ids")
         docs = retrieve(question, k=k)
         metrics = retrieval_metrics([doc.id for doc in docs], relevant, k)
         for name, value in metrics.items():
             metric_totals[name] = metric_totals.get(name, 0.0) + value
-        rows.append({
-            "id": str(item.get("id", index + 1)),
-            "question": question,
-            "expected_ids": relevant,
-            "retrieved_ids": [doc.id for doc in docs],
-            "metrics": metrics,
-        })
+        rows.append(
+            {
+                "id": str(item.get("id", index + 1)),
+                "question": question,
+                "expected_ids": relevant,
+                "retrieved_ids": [doc.id for doc in docs],
+                "metrics": metrics,
+            }
+        )
     count = len(rows)
     return {
         "queries": count,
