@@ -96,6 +96,8 @@ Bad input, rate limits and a busy server are plain JSON errors with the usual st
 
 `crag serve` also serves the UI at `/`. It is one embedded HTML file with no dependencies and a strict content security policy. It shows the route a question takes in real time, lets you stop a running question (`Esc`), open any note behind a citation, copy the answer or a link to the question (`?q=` pre-fills the box and never runs by itself), pick from recent questions, switch light or dark, and focus the question box with `/`. Motion respects `prefers-reduced-motion`; if the server has no `/ask/stream`, the UI falls back to `/ask`.
 
+The design choices (colors, type, motion rules, accessibility) are written down in [DESIGN.md](DESIGN.md). Browser tests that drive the real UI against a fake model server live in [e2e/](e2e/README.md); run them with `make e2e`.
+
 | Status | Meaning |
 |---|---|
 | 400 / 422 | malformed body / question too short or too long |

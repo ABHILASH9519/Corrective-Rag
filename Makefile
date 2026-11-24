@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt run docker
+.PHONY: build test vet fmt run docker e2e
 
 build:
 	go build -o bin/crag ./cmd/crag
@@ -17,3 +17,6 @@ run: build
 
 docker:
 	docker build -t corrective-rag .
+
+e2e:
+	./e2e/run.sh
