@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"crag/internal/evaluator"
 	"crag/internal/kb"
@@ -31,6 +32,7 @@ type Passage struct {
 	ID         string  `json:"id"`
 	Similarity float64 `json:"similarity"`
 	Label      string  `json:"label"`
+	Text       string  `json:"text,omitempty"`
 }
 
 // Result is everything the pipeline learned about one question.
@@ -42,6 +44,35 @@ type Result struct {
 	Passages  []Passage `json:"passages"`
 	WebQuery  string    `json:"web_query,omitempty"`
 	Knowledge []string  `json:"-"`
+}
+
+// Progress event types, in the order a question normally moves through them.
+// Refine and web events can interleave because the two branches run at once.
+const (
+	EventRetrieved  = "retrieved"  // passages found, not graded yet
+	EventGraded     = "graded"     // passages labelled, verdict and route decided
+	EventRewritten  = "rewritten"  // web query written
+	EventSearched   = "searched"   // web search finished; Count is the snippets found
+	EventRefined    = "refined"    // notes filtered; Count is the sentences kept
+	EventGenerating = "generating" // writing the final answer
+)
+
+// Routes a verdict can take. A verdict can take both.
+const (
+	RouteKB  = "kb"
+	RouteWeb = "web"
+)
+
+// Event reports one step of a question in progress, so a UI can show the
+// real work instead of a spinner. MS is the time since the question started.
+type Event struct {
+	Type     string    `json:"type"`
+	MS       int64     `json:"ms"`
+	Passages []Passage `json:"passages,omitempty"`
+	Verdict  string    `json:"verdict,omitempty"`
+	Route    []string  `json:"route,omitempty"`
+	WebQuery string    `json:"web_query,omitempty"`
+	Count    int       `json:"count,omitempty"`
 }
 
 // Options configures a Pipeline.
@@ -73,24 +104,50 @@ func New(index *kb.Index, c llm.Client, s web.Searcher, opts Options) *Pipeline 
 
 // Ask runs one question through the whole pipeline.
 func (p *Pipeline) Ask(ctx context.Context, question string) (*Result, error) {
+	return p.AskStream(ctx, question, nil)
+}
+
+// AskStream is Ask, and also calls emit as each step finishes. emit is never
+// called from two goroutines at once and is not called after AskStream
+// returns. It may be nil.
+func (p *Pipeline) AskStream(ctx context.Context, question string, emit func(Event)) (*Result, error) {
 	question = strings.TrimSpace(question)
 	if question == "" {
 		return nil, errors.New("question is empty")
 	}
+
+	start := time.Now()
+	var emitMu sync.Mutex
+	send := func(e Event) {
+		if emit == nil {
+			return
+		}
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		e.MS = time.Since(start).Milliseconds()
+		emit(e)
+	}
+
 	docs := p.index.Retrieve(question, p.opts.TopK)
+	send(Event{Type: EventRetrieved, Passages: passagesOf(docs, nil)})
 
 	labels, err := evaluator.Grade(ctx, p.llm, question, docs)
 	if err != nil {
 		return nil, err
 	}
-	res := &Result{Question: question, Verdict: evaluator.Decide(labels)}
-	for _, d := range docs {
-		res.Passages = append(res.Passages, Passage{d.ID, d.Similarity, labels[d.ID]})
-	}
+	res := &Result{Question: question, Verdict: evaluator.Decide(labels), Passages: passagesOf(docs, labels)}
 	slog.Info("graded", "verdict", res.Verdict, "passages", len(docs))
 
 	doRefine := res.Verdict == evaluator.Correct || res.Verdict == evaluator.Ambiguous
 	doWeb := res.Verdict == evaluator.Incorrect || res.Verdict == evaluator.Ambiguous
+	var route []string
+	if doRefine {
+		route = append(route, RouteKB)
+	}
+	if doWeb {
+		route = append(route, RouteWeb)
+	}
+	send(Event{Type: EventGraded, Passages: res.Passages, Verdict: res.Verdict, Route: route})
 
 	var (
 		wg                    sync.WaitGroup
@@ -103,13 +160,16 @@ func (p *Pipeline) Ask(ctx context.Context, question string) (*Result, error) {
 		go func() {
 			defer wg.Done()
 			refined, refineErr = refine.Refine(ctx, p.llm, question, docs)
+			if refineErr == nil {
+				send(Event{Type: EventRefined, Count: len(refined)})
+			}
 		}()
 	}
 	if doWeb {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			webQuery, webKnowledge = p.webFallback(ctx, question)
+			webQuery, webKnowledge = p.webFallback(ctx, question, send)
 		}()
 	}
 	wg.Wait()
@@ -124,6 +184,7 @@ func (p *Pipeline) Ask(ctx context.Context, question string) (*Result, error) {
 		res.Answer = NoAnswer
 		return res, nil
 	}
+	send(Event{Type: EventGenerating})
 	user := fmt.Sprintf("Question: %s\n\nKnowledge:\n%s", question, strings.Join(res.Knowledge, "\n"))
 	answer, err := p.llm.Text(ctx, fmt.Sprintf(answerSystem, p.opts.HelpDesk), user)
 	if err != nil {
@@ -137,18 +198,30 @@ func (p *Pipeline) Ask(ctx context.Context, question string) (*Result, error) {
 	return res, nil
 }
 
+// passagesOf pairs retrieved docs with their labels; labels may be nil before grading.
+func passagesOf(docs []kb.Doc, labels map[string]string) []Passage {
+	out := make([]Passage, 0, len(docs))
+	for _, d := range docs {
+		out = append(out, Passage{ID: d.ID, Similarity: d.Similarity, Label: labels[d.ID], Text: d.Text})
+	}
+	return out
+}
+
 // webFallback never fails the request: a broken search just means less knowledge.
-func (p *Pipeline) webFallback(ctx context.Context, question string) (string, []string) {
+func (p *Pipeline) webFallback(ctx context.Context, question string, send func(Event)) (string, []string) {
 	query, err := web.RewriteQuery(ctx, p.llm, question, p.opts.HelpDesk, p.opts.Hint)
 	if err != nil {
 		slog.Warn("query rewrite failed, using the question as the query", "err", err)
 		query = question
 	}
+	send(Event{Type: EventRewritten, WebQuery: query})
 	results, err := p.searcher.Search(ctx, query, p.opts.WebResults)
 	if err != nil {
 		slog.Warn("web search failed", "err", err)
+		send(Event{Type: EventSearched})
 		return query, nil
 	}
+	send(Event{Type: EventSearched, Count: len(results)})
 	return query, web.Format(results)
 }
 

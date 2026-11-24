@@ -88,11 +88,12 @@ func TestIndexServesUIWithSecurityHeaders(t *testing.T) {
 	h := New(okAsker{}, "m", "v", 100, 4, RateLimit{}).Handler()
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Corrective RAG Help Desk") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "RAGForge") || !strings.Contains(rec.Body.String(), "/ask/stream") {
 		t.Fatalf("%d", rec.Code)
 	}
-	if !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'") ||
-		rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "frame-ancestors 'none'") ||
+		!strings.Contains(csp, "connect-src 'self'") || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("missing security headers: %v", rec.Header())
 	}
 	rec = httptest.NewRecorder()

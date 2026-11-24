@@ -35,7 +35,7 @@ This project started from the *"Build a CRAG Help Desk in 50 Minutes"* tutorial 
 - **Own retriever:** TF-IDF with cosine similarity, built from scratch, no vector database or model download.
 - **Production concerns:** Groq client with `Retry-After`-aware backoff, per-IP rate limiting, concurrency cap, request timeouts, graceful shutdown, strict input validation, security headers, no provider details leaked in errors.
 - **Evaluation harness** (`crag eval`) with a labelled question set, so quality is measured, not asserted.
-- **Web UI** that shows how each answer was decided: per-passage grades, similarity, verdict, citations.
+- **Web UI** that shows the pipeline working: a live route diagram driven by real server events (retrieve, grade, then the notes lane, the web lane or both), per-passage grades with the note text, a verdict signal lamp, and clickable citations.
 - **Interfaces for testing:** LLM and web search are swappable, giving 50+ offline tests under the race detector.
 
 ## Measured results
@@ -75,7 +75,26 @@ curl -s localhost:8000/ask -H 'content-type: application/json' \
   -d '{"question": "My train ran 5 hours late and I did not travel. How do I get a refund?"}'
 ```
 
-Returns `answer`, `verdict`, `sources`, per-passage `passages` (similarity and label) and `web_query` when the web was used.
+Returns `answer`, `verdict`, `sources`, per-passage `passages` (similarity, label and the note `text`) and `web_query` when the web was used.
+
+**Live progress.** `POST /ask/stream` takes the same body and answers with server-sent events, so a client can show each step as it finishes instead of waiting for the end:
+
+```bash
+curl -sN localhost:8000/ask/stream -H 'content-type: application/json' \
+  -d '{"question": "What time does Tatkal booking open for AC classes?"}'
+```
+
+| Event | Data |
+|---|---|
+| `progress` | `{"type", "ms", ...}` where `type` is `retrieved`, `graded` (verdict, `route` of `kb` and/or `web`, labelled passages), `rewritten` (web query), `searched` (result `count`), `refined` (sentences kept) or `generating`. `ms` is time since the question started. Notes and web steps can interleave because they run at once. |
+| `result` | the same JSON as `/ask`, sent once at the end |
+| `error` | `{"error": "..."}`, sent once instead of `result`; never contains provider details |
+
+Bad input, rate limits and a busy server are plain JSON errors with the usual status codes, before any stream starts. A `: keep-alive` comment is sent every 10 seconds so proxies do not close a slow stream.
+
+### Web UI
+
+`crag serve` also serves the UI at `/`. It is one embedded HTML file with no dependencies and a strict content security policy. It shows the route a question takes in real time, lets you stop a running question (`Esc`), open any note behind a citation, copy the answer or a link to the question (`?q=` pre-fills the box and never runs by itself), pick from recent questions, switch light or dark, and focus the question box with `/`. Motion respects `prefers-reduced-motion`; if the server has no `/ask/stream`, the UI falls back to `/ask`.
 
 | Status | Meaning |
 |---|---|
