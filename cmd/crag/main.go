@@ -16,6 +16,7 @@ import (
 
 	"crag/data"
 	"crag/internal/config"
+	"crag/internal/eval"
 	"crag/internal/kb"
 	"crag/internal/llm"
 	"crag/internal/pipeline"
@@ -23,13 +24,14 @@ import (
 	"crag/internal/web"
 )
 
-const version = "2.0.0"
+const version = "2.1.0"
 
 const usage = `crag - Corrective RAG help desk
 
 Usage:
   crag ask [-v] <question>     answer one question
-  crag serve [-addr :8000]     run the HTTP API
+  crag serve [-addr :8000]     run the web UI and HTTP API
+  crag eval [-offline]         measure retrieval (offline) and routing (live) on the labelled set
   crag version`
 
 func main() {
@@ -49,6 +51,8 @@ func run(args []string) error {
 		return cmdAsk(args[1:])
 	case "serve":
 		return cmdServe(args[1:])
+	case "eval":
+		return cmdEval(args[1:])
 	case "version":
 		fmt.Println("crag", version)
 		return nil
@@ -80,6 +84,45 @@ func build() (*pipeline.Pipeline, config.Config, error) {
 		TopK: cfg.TopK, WebResults: cfg.WebResults, HelpDesk: cfg.HelpDeskName, Hint: cfg.RewriteHint,
 	})
 	return p, cfg, nil
+}
+
+func cmdEval(args []string) error {
+	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+	offline := fs.Bool("offline", false, "retrieval check only: no API key or network needed")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	cases, err := eval.Load(data.EvaluationSet)
+	if err != nil {
+		return err
+	}
+	index, err := kb.Load(cfg.KBPath, data.DefaultKnowledgeBase)
+	if err != nil {
+		return err
+	}
+	eval.Retrieval(index, cases, cfg.TopK).Write(os.Stdout)
+	if *offline {
+		return nil
+	}
+
+	p, _, err := build()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	fmt.Println()
+	report, err := eval.Routing(ctx, p, cases, os.Stdout)
+	if err != nil {
+		return err
+	}
+	report.Write(os.Stdout)
+	return nil
 }
 
 func cmdAsk(args []string) error {
@@ -138,8 +181,9 @@ func cmdServe(args []string) error {
 		addr = *addrFlag
 	}
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           server.New(p, cfg.Model, version, cfg.MaxQuestionLen, cfg.MaxConcurrent).Handler(),
+		Addr: addr,
+		Handler: server.New(p, cfg.Model, version, cfg.MaxQuestionLen, cfg.MaxConcurrent,
+			server.RateLimit{PerMinute: cfg.RatePerMinute, TrustProxy: cfg.TrustProxy}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      2 * time.Minute,

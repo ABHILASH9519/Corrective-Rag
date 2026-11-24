@@ -1,4 +1,4 @@
-// Package data embeds the default knowledge base so the binary runs anywhere.
+// Package data embeds the default knowledge base and evaluation set so the binary runs anywhere.
 package data
 
 import _ "embed"
@@ -8,3 +8,8 @@ import _ "embed"
 //
 //go:embed knowledge_base.json
 var DefaultKnowledgeBase []byte
+
+// EvaluationSet is data/evaluation_set.json: labelled questions for `crag eval`.
+//
+//go:embed evaluation_set.json
+var EvaluationSet []byte

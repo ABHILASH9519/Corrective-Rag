@@ -42,6 +42,25 @@ func TestInvalidValues(t *testing.T) {
 	}
 }
 
+func TestPortAndRateSettings(t *testing.T) {
+	c, err := config.FromEnv(env(map[string]string{"PORT": "10000", "CRAG_RATE_PER_MINUTE": "0", "CRAG_TRUST_PROXY": "true"}))
+	if err != nil || c.Addr != ":10000" || c.RatePerMinute != 0 || !c.TrustProxy {
+		t.Fatalf("%+v %v", c, err)
+	}
+	// An explicit CRAG_ADDR beats PORT.
+	c, _ = config.FromEnv(env(map[string]string{"PORT": "10000", "CRAG_ADDR": ":9"}))
+	if c.Addr != ":9" || c.RatePerMinute != 10 {
+		t.Fatalf("%+v", c)
+	}
+	for _, m := range []map[string]string{
+		{"PORT": "abc"}, {"PORT": "70000"}, {"CRAG_RATE_PER_MINUTE": "-1"}, {"CRAG_TRUST_PROXY": "maybe"},
+	} {
+		if _, err := config.FromEnv(env(m)); err == nil {
+			t.Errorf("%v: expected error", m)
+		}
+	}
+}
+
 func TestParseEnvLine(t *testing.T) {
 	cases := []struct {
 		line, key, val string

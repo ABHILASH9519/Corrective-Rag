@@ -1,0 +1,17 @@
+# One-click deploy on Render: New > Blueprint > pick this repo.
+# You will be asked for GROQ_API_KEY (free at https://console.groq.com/keys).
+services:
+  - type: web
+    name: corrective-rag
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CRAG_TRUST_PROXY   # Render's proxy appends the real client IP to X-Forwarded-For
+        value: "true"
+      - key: CRAG_RATE_PER_MINUTE
+        value: "6"              # protects your free Groq quota on a public link
+      - key: CRAG_LOG_LEVEL
+        value: info

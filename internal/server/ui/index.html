@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Corrective RAG Help Desk</title>
+<meta name="description" content="A help desk that grades its own retrieval, then answers from a knowledge base, the web, or both, with sources.">
+<style>
+:root{
+  --bg:#f7f6f2; --surface:#fff; --ink:#16181d; --muted:#5d6370; --line:#e3e1d9;
+  --accent:#1f4fd8; --accent-ink:#fff;
+  --ok:#14723f; --ok-bg:#e3f4ea; --warn:#8a5a00; --warn-bg:#fcf0d4; --bad:#a4262c; --bad-bg:#fbe5e6;
+  --kb:#1f4fd8; --kb-bg:#e6edff; --web:#8a3ffc; --web-bg:#f0e8ff;
+  --radius:12px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1115; --surface:#181b21; --ink:#eceef3; --muted:#9aa1ae; --line:#2a2f39;
+  --accent:#6c93ff; --accent-ink:#0b1020;
+  --ok:#5fd596; --ok-bg:#12301f; --warn:#f0c15a; --warn-bg:#352a0e; --bad:#ff8a90; --bad-bg:#3a181b;
+  --kb:#8fadff; --kb-bg:#1a2547; --web:#c3a0ff; --web-bg:#2a1d49;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:40px 16px 64px}
+h1{font-size:clamp(1.6rem,4vw,2.2rem);line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
+.lede{color:var(--muted);margin:0 0 28px;max-width:62ch}
+form{display:flex;gap:8px;flex-wrap:wrap}
+input[type=text]{flex:1 1 280px;min-width:0;padding:13px 14px;font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+input[type=text]:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button{font:inherit;font-weight:600;padding:13px 20px;border:0;border-radius:var(--radius);background:var(--accent);color:var(--accent-ink);cursor:pointer}
+button:disabled{opacity:.55;cursor:progress}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 0}
+.chips button{background:var(--surface);color:var(--ink);border:1px solid var(--line);font-weight:500;font-size:.88rem;padding:7px 12px;border-radius:999px}
+.chips button:hover{border-color:var(--accent)}
+.hint{font-size:.82rem;color:var(--muted);margin:6px 0 0}
+#result{margin-top:28px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.card h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
+.verdict{display:inline-block;font-weight:700;font-size:.85rem;padding:4px 12px;border-radius:999px;margin-bottom:10px}
+.v-CORRECT{color:var(--ok);background:var(--ok-bg)}
+.v-AMBIGUOUS{color:var(--warn);background:var(--warn-bg)}
+.v-INCORRECT{color:var(--bad);background:var(--bad-bg)}
+.explain{color:var(--muted);font-size:.92rem;margin:0}
+.answer{font-size:1.05rem;margin:0}
+.cite{display:inline-block;font:600 .72rem/1 ui-monospace,Menlo,Consolas,monospace;padding:3px 7px;border-radius:6px;margin:0 2px;vertical-align:baseline;text-decoration:none;word-break:break-all}
+.cite.kb{color:var(--kb);background:var(--kb-bg)}
+.cite.web{color:var(--web);background:var(--web-bg)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row b{font:600 .88rem ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere}
+.label{font-size:.78rem;font-weight:700;padding:3px 10px;border-radius:999px;justify-self:end}
+.l-relevant{color:var(--ok);background:var(--ok-bg)}
+.l-partial{color:var(--warn);background:var(--warn-bg)}
+.l-irrelevant{color:var(--bad);background:var(--bad-bg)}
+.bar{grid-column:1/-1;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.sim{font-size:.78rem;color:var(--muted)}
+.query{font:.9rem ui-monospace,Menlo,Consolas,monospace;margin:0}
+.err{color:var(--bad);background:var(--bad-bg);border-radius:var(--radius);padding:14px 16px}
+footer{margin-top:40px;color:var(--muted);font-size:.84rem}
+footer a{color:inherit}
+.sr{position:absolute;left:-9999px}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:width .5s ease}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Corrective RAG Help Desk</h1>
+  <p class="lede">Most RAG bots trust whatever they retrieve. This one grades each passage first, then answers from its notes, the live web, or both, and cites every source.</p>
+
+  <form id="f">
+    <label class="sr" for="q">Your question</label>
+    <input id="q" type="text" maxlength="500" autocomplete="off" placeholder="Ask about Indian Railways booking, refunds, luggage..." required>
+    <button id="go" type="submit">Ask</button>
+  </form>
+  <p class="hint">The notes cover Indian Railways only. Ask something outside them to watch it go to the web.</p>
+  <div class="chips" id="chips" aria-label="Example questions">
+    <button type="button">What time does Tatkal booking open for AC classes?</button>
+    <button type="button">How much check-in baggage can I carry on an IndiGo domestic flight?</button>
+    <button type="button">My train ran 5 hours late and I did not travel. How do I get a refund?</button>
+  </div>
+
+  <div id="result" aria-live="polite"></div>
+
+  <footer>
+    Based on <em>Corrective Retrieval Augmented Generation</em> (Yan et al., 2024). Sample notes are simplified, not an official IRCTC source.
+    Answers from the web are unverified.
+  </footer>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const EXPLAIN = {
+  CORRECT: "A retrieved note answers the question, so the answer comes from the knowledge base.",
+  AMBIGUOUS: "The notes only partly help, so the knowledge base and the web were both used.",
+  INCORRECT: "Nothing retrieved helps, so the question was rewritten and the web was searched."
+};
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+// Build the answer with citation chips. Only http(s) URLs become links.
+function renderAnswer(text) {
+  const p = el("p", "answer");
+  const re = /\[((?:KB|WEB):[^\]]+)\]/g;
+  let last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    p.append(text.slice(last, m.index));
+    const tag = m[1], isWeb = tag.startsWith("WEB:");
+    const target = tag.slice(tag.indexOf(":") + 1);
+    let chip;
+    if (isWeb && /^https?:\/\//i.test(target)) {
+      chip = el("a", "cite web", new URL(target).hostname);
+      chip.href = target; chip.target = "_blank"; chip.rel = "noopener noreferrer"; chip.title = target;
+    } else {
+      chip = el("span", "cite " + (isWeb ? "web" : "kb"), target);
+    }
+    p.append(chip);
+    last = re.lastIndex;
+  }
+  p.append(text.slice(last));
+  return p;
+}
+
+function card(title) {
+  const c = el("section", "card");
+  c.append(el("h2", null, title));
+  return c;
+}
+
+function render(d) {
+  const out = $("result");
+  out.replaceChildren();
+
+  const a = card("Answer");
+  a.append(el("span", "verdict v-" + d.verdict, d.verdict));
+  a.append(renderAnswer(d.answer));
+  out.append(a);
+
+  const g = card("How it decided");
+  g.append(el("p", "explain", EXPLAIN[d.verdict] || ""));
+  const list = el("div");
+  list.style.marginTop = "12px";
+  for (const p of d.passages || []) {
+    const row = el("div", "row");
+    const left = el("div");
+    left.append(el("b", null, p.id), el("span", "sim", "  similarity " + p.similarity.toFixed(2)));
+    row.append(left, el("span", "label l-" + p.label, p.label));
+    const bar = el("div", "bar"), fill = el("i");
+    fill.style.width = Math.min(100, Math.round(p.similarity * 100)) + "%";
+    bar.append(fill); row.append(bar);
+    list.append(row);
+  }
+  g.append(list);
+  out.append(g);
+
+  if (d.web_query) {
+    const w = card("Web search query");
+    w.append(el("p", "query", d.web_query));
+    out.append(w);
+  }
+}
+
+async function ask(question) {
+  const btn = $("go"), out = $("result");
+  btn.disabled = true; btn.textContent = "Thinking...";
+  out.replaceChildren(el("p", "explain", "Grading retrieved notes..."));
+  try {
+    const r = await fetch("/ask", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "Request failed (" + r.status + ")");
+    render(d);
+  } catch (e) {
+    out.replaceChildren(el("div", "err", e.message));
+  } finally {
+    btn.disabled = false; btn.textContent = "Ask";
+  }
+}
+
+$("f").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = $("q").value.trim();
+  if (q.length >= 3) ask(q);
+});
+$("chips").addEventListener("click", (e) => {
+  if (e.target.tagName !== "BUTTON") return;
+  $("q").value = e.target.textContent;
+  ask(e.target.textContent);
+});
+</script>
+</body>
+</html>

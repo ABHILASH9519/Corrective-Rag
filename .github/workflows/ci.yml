@@ -17,7 +17,9 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race -count=1 ./...
-      - run: go build ./cmd/crag
+      - run: go build -o crag ./cmd/crag
+      - name: Retrieval quality (offline)
+        run: ./crag eval -offline
   docker:
     runs-on: ubuntu-latest
     needs: test

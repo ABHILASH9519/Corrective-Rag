@@ -3,15 +3,20 @@ package server
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"crag/internal/pipeline"
 )
+
+//go:embed ui/index.html
+var indexHTML []byte
 
 // Asker is what the server needs from the pipeline.
 type Asker interface {
@@ -26,23 +31,39 @@ type Server struct {
 	maxQuestion int
 	slots       chan struct{} // limits concurrent pipeline runs
 	timeout     time.Duration
+	limiter     *limiter // nil = unlimited
+	trustProxy  bool
 }
 
 // New builds a Server. maxConcurrent caps simultaneous questions so one burst
 // cannot exhaust the Groq rate limit; extra callers get 429.
-func New(a Asker, model, version string, maxQuestion, maxConcurrent int) *Server {
-	return &Server{
+func New(a Asker, model, version string, maxQuestion, maxConcurrent int, rl RateLimit) *Server {
+	s := &Server{
 		asker: a, model: model, version: version, maxQuestion: maxQuestion,
 		slots: make(chan struct{}, maxConcurrent), timeout: 90 * time.Second,
+		trustProxy: rl.TrustProxy,
 	}
+	if rl.PerMinute > 0 {
+		s.limiter = newLimiter(rl.PerMinute)
+	}
+	return s
 }
 
 // Handler returns the routes wrapped with request logging.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", s.index)
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /ask", s.ask)
 	return logRequests(mux)
+}
+
+func (s *Server) index(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	_, _ = w.Write(indexHTML)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -70,6 +91,14 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 	case len(q) > s.maxQuestion:
 		writeError(w, http.StatusUnprocessableEntity, "question is too long")
 		return
+	}
+
+	if s.limiter != nil {
+		if ok, wait := s.limiter.allow(clientIP(r, s.trustProxy)); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+			writeError(w, http.StatusTooManyRequests, "you are asking too quickly, please wait a moment")
+			return
+		}
 	}
 
 	select {

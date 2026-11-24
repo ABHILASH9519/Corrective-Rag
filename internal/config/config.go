@@ -27,7 +27,9 @@ type Config struct {
 	KBPath          string // empty = embedded default knowledge base
 	Addr            string // HTTP listen address
 	MaxQuestionLen  int
-	MaxConcurrent   int // simultaneous pipeline runs the server allows
+	MaxConcurrent   int  // simultaneous pipeline runs the server allows
+	RatePerMinute   int  // per-client questions per minute on /ask; 0 disables
+	TrustProxy      bool // read the client IP from X-Forwarded-For (set behind a proxy like Render)
 	HelpDeskName    string
 	RewriteHint     string
 	LogLevel        slog.Level
@@ -46,6 +48,7 @@ func Defaults() Config {
 		Addr:            ":8000",
 		MaxQuestionLen:  500,
 		MaxConcurrent:   4,
+		RatePerMinute:   10,
 		HelpDeskName:    "Indian Railways",
 		RewriteHint:     `If the question is about trains, include "Indian Railways" or "IRCTC".`,
 		LogLevel:        slog.LevelInfo,
@@ -89,6 +92,27 @@ func FromEnv(get func(string) string) (Config, error) {
 			}
 			*dst = n
 		}
+	}
+	// Hosting platforms (Render, Railway, Cloud Run) hand us the port in PORT.
+	if p := strings.TrimSpace(get("PORT")); p != "" && strings.TrimSpace(get("CRAG_ADDR")) == "" {
+		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+			return Config{}, fmt.Errorf("PORT must be 1-65535, got %q", p)
+		}
+		c.Addr = ":" + p
+	}
+	if v := strings.TrimSpace(get("CRAG_RATE_PER_MINUTE")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("CRAG_RATE_PER_MINUTE must be 0 or a positive integer, got %q", v)
+		}
+		c.RatePerMinute = n
+	}
+	if v := strings.TrimSpace(get("CRAG_TRUST_PROXY")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("CRAG_TRUST_PROXY must be true or false, got %q", v)
+		}
+		c.TrustProxy = b
 	}
 	if v := strings.TrimSpace(get("CRAG_LOG_LEVEL")); v != "" {
 		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {

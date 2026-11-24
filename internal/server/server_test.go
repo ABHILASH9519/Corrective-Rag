@@ -37,7 +37,7 @@ func do(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 }
 
 func handler(a server.Asker, concurrent int) http.Handler {
-	return server.New(a, "model-x", "9.9.9", 50, concurrent).Handler()
+	return server.New(a, "model-x", "9.9.9", 50, concurrent, server.RateLimit{}).Handler()
 }
 
 func TestHealth(t *testing.T) {
