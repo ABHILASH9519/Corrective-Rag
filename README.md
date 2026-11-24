@@ -1,8 +1,8 @@
-# Corrective RAG Help Desk
+# RAGForge
 
 **A help desk that grades its own retrieval before it answers.** Written in Go with zero third-party dependencies: one static binary that serves a web UI, an HTTP API and a CLI.
 
-> **Live demo:** _add your deployed URL here after deploying (see [Deploy](#deploy))_
+> **Live demo:** [https://ragforge-o8od.onrender.com](https://ragforge-o8od.onrender.com) · [Health check](https://ragforge-o8od.onrender.com/health)
 
 Plain RAG trusts the top-k passages even when they only *look* related. Ask an Indian Railways bot about IndiGo baggage and it serves train-luggage notes. Corrective RAG (CRAG) catches that: an evaluator grades every retrieved passage, and the grade decides whether to answer from the notes, search the web, or do both.
 
@@ -54,8 +54,8 @@ CI fails if these drop below 70% and 90%. The live routing check (`crag eval`, n
 Requires Go 1.24+ and a free [Groq API key](https://console.groq.com/keys).
 
 ```bash
-git clone https://github.com/ABHILASH9519/Corrective-Rag
-cd Corrective-Rag
+git clone https://github.com/ABHILASH9519/RAGForge
+cd RAGForge
 cp .env.example .env            # put your GROQ_API_KEY in it
 make build
 
@@ -87,13 +87,13 @@ Returns `answer`, `verdict`, `sources`, per-passage `passages` (similarity and l
 
 ## Deploy
 
-**Render (free tier):** New, Blueprint, select this repo. `render.yaml` is included. Set `GROQ_API_KEY` when asked. The service reads Render's `PORT`, trusts its proxy for client IPs and limits each visitor to 6 questions a minute, which protects your Groq quota on a public link. Free instances sleep when idle, so the first visit takes about 30 seconds.
+**Render (free tier):** Deployed at [ragforge-o8od.onrender.com](https://ragforge-o8od.onrender.com). The live health endpoint currently reports `status: ok`, version `2.1.0`, and model `openai/gpt-oss-120b`. The Render Blueprint is named `RAGForge`; set `GROQ_API_KEY` in the service Environment settings. The service reads Render's `PORT`, trusts its proxy for client IPs and limits each visitor to 6 questions a minute, which protects your Groq quota on a public link. Free instances sleep when idle, so the first visit takes about 30 seconds.
 
 **Docker anywhere:**
 
 ```bash
-docker build -t corrective-rag .
-docker run --rm -p 8000:8000 --env-file .env corrective-rag
+docker build -t ragforge .
+docker run --rm -p 8000:8000 --env-file .env ragforge
 ```
 
 The image is distroless and runs as non-root.
