@@ -1,8 +1,8 @@
 # One-click deploy on Render: New > Blueprint > pick this repo.
-# You will be asked for GROQ_API_KEY (free at https://console.groq.com/keys).
+# Set GROQ_API_KEY in the Render service Environment page before the first successful start.
 services:
   - type: web
-    name: corrective-rag
+    name: ragforge
     runtime: docker
     plan: free
     healthCheckPath: /health
