@@ -176,3 +176,22 @@ CI runs gofmt, vet, race tests, build, the offline retrieval check and a Docker 
 ## License
 
 MIT
+
+
+## Technical walkthrough
+
+```mermaid
+sequenceDiagram
+    participant P0 as Query
+    participant P1 as Retrieve
+    participant P2 as Evaluate
+    participant P3 as Generate
+    P0->>P1: Retrieve
+    P1->>P2: Evaluate
+    P2->>P3: Generate
+    P3-->>P0: Result or status
+```
+
+This sequence is a conceptual review aid, not a recorded execution trace. Consult the implementation and existing run instructions for supported behavior.
+
+![Last commit](https://img.shields.io/github/last-commit/ABHILASH9519/RAGForge) ![Open issues](https://img.shields.io/github/issues/ABHILASH9519/RAGForge)
